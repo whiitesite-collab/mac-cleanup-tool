@@ -1,0 +1,23 @@
+{
+  "llm_model_dirs": ["/Users/YOU/Downloads", "/Users/YOU/Documents", "/Users/YOU/models"],
+  "llm_model_extensions": [".gguf", ".bin", ".safetensors", ".ckpt", ".pt"],
+  "llm_model_min_size_mb": 500,
+  "llm_model_min_age_days": 30,
+
+  "system_junk_dirs": ["/Users/YOU/Library/Caches", "/Users/YOU/Library/Logs"],
+  "system_junk_min_age_days": 14,
+
+  "installer_dirs": ["/Users/YOU/Downloads"],
+  "installer_extensions": [".dmg", ".pkg"],
+  "installer_min_age_days": 30,
+
+  "project_roots": ["/Users/YOU/Developer", "/Users/YOU/Projects"],
+  "project_leftover_names": ["node_modules", "venv", ".venv", "__pycache__", "dist", "build", "target"],
+  "project_leftover_min_age_days": 60,
+
+  "duplicate_dirs": ["/Users/YOU/Downloads", "/Users/YOU/Desktop"],
+  "duplicate_min_size_mb": 5,
+
+  "protected_paths": ["/Users/YOU/Library/Keychains"],
+  "min_untouched_hours": 24
+}
