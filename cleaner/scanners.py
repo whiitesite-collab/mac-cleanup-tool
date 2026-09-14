@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -370,9 +372,208 @@ def scan_duplicates(config: dict) -> list[Finding]:
     return findings
 
 
+# ---------------------------------------------------------------------------
+# 5. APT package cache (Linux) - report only, never touched automatically:
+#    the cache dir is normally root-owned, so this tool has no safe way to
+#    remove from it without running as root.
+# ---------------------------------------------------------------------------
+
+def scan_apt_cache(config: dict) -> list[Finding]:
+    cache_dir = Path(config["apt_cache_dir"])
+    if not cache_dir.is_dir():
+        return []
+
+    debs = [(p, s) for p, s in iter_files(cache_dir) if p.suffix.lower() == ".deb"]
+    if not debs:
+        return []
+
+    total_size = sum(s.st_size for _, s in debs)
+    oldest_mtime = min(s.st_mtime for _, s in debs)
+    modified = datetime.fromtimestamp(oldest_mtime)
+    age_days = (datetime.now() - modified).days
+    if age_days < config["apt_cache_min_age_days"]:
+        return []
+
+    return [Finding(
+        path=cache_dir,
+        category="apt_cache",
+        size_bytes=total_size,
+        modified=modified,
+        reason=(
+            f"{len(debs)} .deb-Pakete im APT-Cache, älteste seit {age_days} Tagen. "
+            f"Gehört meist root – dieses Tool räumt hier nicht automatisch auf."
+        ),
+        action="manual",
+        action_arg="sudo apt-get clean",
+    )]
+
+
+# ---------------------------------------------------------------------------
+# 6. Pentest tool output / loot (Linux)
+# ---------------------------------------------------------------------------
+
+def _scan_pentest_loot_in(base: str, config: dict) -> list[Finding]:
+    findings = []
+    base_path = Path(base)
+    if not base_path.is_dir():
+        return findings
+
+    try:
+        candidates = list(base_path.iterdir())
+    except OSError:
+        return findings
+
+    for candidate in candidates:
+        try:
+            stat_result = candidate.stat()
+        except OSError:
+            continue
+        modified = datetime.fromtimestamp(stat_result.st_mtime)
+        if not _eligible(candidate, config, modified):
+            continue
+        age_days = (datetime.now() - modified).days
+        if age_days < config["pentest_loot_min_age_days"]:
+            continue
+        size = _dir_size(candidate) if candidate.is_dir() else stat_result.st_size
+        if size == 0:
+            continue
+        findings.append(Finding(
+            path=candidate,
+            category="pentest_loot",
+            size_bytes=size,
+            modified=modified,
+            reason=(
+                f"Pentest-Output unter {base_path.name}/, seit {age_days} Tagen unangetastet – "
+                f"vor dem Entfernen prüfen, ob Report/Findings daraus schon exportiert sind"
+            ),
+        ))
+    return findings
+
+
+def scan_pentest_loot(config: dict) -> list[Finding]:
+    results = parallel_map(lambda base: _scan_pentest_loot_in(base, config), config["pentest_loot_dirs"])
+    return [f for group in results for f in group]
+
+
+# ---------------------------------------------------------------------------
+# 7. Docker: dangling images, stopped containers, orphaned volumes
+# ---------------------------------------------------------------------------
+
+def _docker_output(*args: str) -> str | None:
+    if shutil.which("docker") is None:
+        return None
+    try:
+        result = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _parse_docker_time(raw: str) -> datetime:
+    raw = raw.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S %z %Z", "%Y-%m-%d %H:%M:%S %z"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=None)
+        except ValueError:
+            continue
+    return datetime.now()
+
+
+def _parse_docker_size(raw: str) -> int:
+    raw = raw.strip().split(" ")[0].upper()  # "1.2GB" or "0B (virtual 512MB)" -> "0B"
+    for suffix, factor in (("TB", 1024**4), ("GB", 1024**3), ("MB", 1024**2), ("KB", 1024), ("B", 1)):
+        if raw.endswith(suffix):
+            try:
+                return int(float(raw[: -len(suffix)]) * factor)
+            except ValueError:
+                return 0
+    return 0
+
+
+def _scan_docker_dangling_images(config: dict) -> list[Finding]:
+    output = _docker_output("images", "-f", "dangling=true", "--format", "{{.ID}}\t{{.Size}}\t{{.CreatedAt}}")
+    if not output:
+        return []
+    findings = []
+    for line in output.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        image_id, size_raw, created_raw = parts
+        findings.append(Finding(
+            path=Path(f"docker-image://{image_id}"),
+            category="docker",
+            size_bytes=_parse_docker_size(size_raw),
+            modified=_parse_docker_time(created_raw),
+            reason=f"Dangling Docker-Image {image_id} – kein Tag/Container verweist mehr darauf",
+            action="docker_rmi",
+            action_arg=image_id,
+        ))
+    return findings
+
+
+def _scan_docker_stopped_containers(config: dict) -> list[Finding]:
+    output = _docker_output(
+        "ps", "-a", "-s", "-f", "status=exited",
+        "--format", "{{.ID}}\t{{.Size}}\t{{.CreatedAt}}\t{{.Names}}",
+    )
+    if not output:
+        return []
+    findings = []
+    for line in output.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) != 4:
+            continue
+        cid, size_raw, created_raw, name = parts
+        findings.append(Finding(
+            path=Path(f"docker-container://{cid}"),
+            category="docker",
+            size_bytes=_parse_docker_size(size_raw),
+            modified=_parse_docker_time(created_raw),
+            reason=f"Gestoppter Container '{name}' ({cid})",
+            action="docker_rm_container",
+            action_arg=cid,
+        ))
+    return findings
+
+
+def _scan_docker_dangling_volumes(config: dict) -> list[Finding]:
+    output = _docker_output("volume", "ls", "-f", "dangling=true", "--format", "{{.Name}}")
+    if not output:
+        return []
+    findings = []
+    for name in output.strip().splitlines():
+        name = name.strip()
+        if not name:
+            continue
+        findings.append(Finding(
+            path=Path(f"docker-volume://{name}"),
+            category="docker",
+            size_bytes=0,
+            modified=datetime.now(),
+            reason=f"Verwaistes Docker-Volume '{name}' (Größe von Docker nicht gemeldet)",
+            action="docker_volume_rm",
+            action_arg=name,
+        ))
+    return findings
+
+
+def scan_docker(config: dict) -> list[Finding]:
+    findings: list[Finding] = []
+    findings.extend(_scan_docker_dangling_images(config))
+    findings.extend(_scan_docker_stopped_containers(config))
+    findings.extend(_scan_docker_dangling_volumes(config))
+    return findings
+
+
 ALL_SCANNERS = {
     "llm": scan_llm_models,
     "junk": scan_system_junk,
     "projects": scan_project_leftovers,
     "duplicates": scan_duplicates,
+    "apt": scan_apt_cache,
+    "loot": scan_pentest_loot,
+    "docker": scan_docker,
 }

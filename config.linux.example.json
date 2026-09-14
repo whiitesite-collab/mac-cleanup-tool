@@ -1,0 +1,24 @@
+{
+  "llm_model_dirs": ["/home/YOU/Downloads", "/home/YOU/Documents", "/home/YOU/models"],
+  "llm_model_min_size_mb": 500,
+  "llm_model_min_age_days": 30,
+
+  "system_junk_dirs": ["/home/YOU/.cache", "/home/YOU/.npm/_cacache"],
+  "system_junk_min_age_days": 14,
+
+  "project_roots": ["/home/YOU/tools", "/home/YOU/projects"],
+  "project_leftover_names": ["node_modules", "venv", ".venv", "__pycache__", "dist", "build", "target"],
+  "project_leftover_min_age_days": 60,
+
+  "duplicate_dirs": ["/home/YOU/Downloads", "/home/YOU/loot"],
+  "duplicate_min_size_mb": 5,
+
+  "apt_cache_dir": "/var/cache/apt/archives",
+  "apt_cache_min_age_days": 14,
+
+  "pentest_loot_dirs": ["/home/YOU/loot", "/home/YOU/.msf4/loot", "/home/YOU/engagements"],
+  "pentest_loot_min_age_days": 30,
+
+  "protected_paths": ["/home/YOU/.ssh", "/home/YOU/.gnupg", "/home/YOU/.msf4/msf.db"],
+  "min_untouched_hours": 24
+}

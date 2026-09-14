@@ -12,6 +12,9 @@ CATEGORY_LABELS = {
     "system_junk": "System-Müll (Caches/Logs/Installer)",
     "project_leftover": "Alte Projekt-Reste",
     "duplicate": "Duplikate",
+    "apt_cache": "APT-Paket-Cache (nur Bericht, braucht sudo)",
+    "pentest_loot": "Pentest-Output/Loot",
+    "docker": "Docker (Images/Container/Volumes)",
 }
 
 
