@@ -8,27 +8,19 @@ Ollama models go through `ollama rm`. See README.md for the safety model.
 Usage:
     python3 cleanup.py scan   [--category llm junk projects duplicates] [--config config.json]
     python3 cleanup.py clean  [--category llm junk projects duplicates] [--config config.json]
+    python3 cleanup.py gui    [--category ...] [--config config.json]   (Fenster statt Terminal)
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from datetime import datetime
 
 from cleaner.config import load_config
 from cleaner.findings import Finding
-from cleaner.report import print_report, write_json_report
-from cleaner.scanners import ALL_SCANNERS
-from cleaner.trash import TrashError, remove
-
-
-def run_scanners(categories: list[str], config: dict) -> list[Finding]:
-    findings = []
-    for name in categories:
-        findings.extend(ALL_SCANNERS[name](config))
-    return findings
+from cleaner.report import print_report, write_cleanup_log, write_json_report
+from cleaner.scanners import ALL_SCANNERS, run_scanners
+from cleaner.trash import LastCopyGuard, TrashError, remove
 
 
 def cmd_scan(args) -> None:
@@ -48,6 +40,7 @@ def cmd_clean(args) -> None:
 
     print_report(findings)
     log = []
+    guard = LastCopyGuard(findings)
 
     by_category: dict[str, list[Finding]] = {}
     for f in findings:
@@ -76,18 +69,36 @@ def cmd_clean(args) -> None:
             selected = [items[i - 1] for i in indices if 1 <= i <= len(items)]
 
         for f in selected:
+            blocked = guard.blocks(f)
+            if blocked:
+                print(f"  ⤫ {blocked}")
+                log.append({"path": str(f.path), "status": "skipped", "reason": blocked})
+                continue
             try:
                 remove(f, config)
+                guard.mark_removed(f)
                 print(f"  ✓ entfernt: {f.path}")
                 log.append({"path": str(f.path), "status": "removed", "action": f.action})
             except TrashError as e:
                 print(f"  ✗ {e}")
                 log.append({"path": str(f.path), "status": "failed", "error": str(e)})
 
-    log_path = f"cleanup-log-{datetime.now():%Y%m%d-%H%M%S}.json"
-    with open(log_path, "w", encoding="utf-8") as f:
-        json.dump(log, f, indent=2, ensure_ascii=False)
-    print(f"\nProtokoll gespeichert unter {log_path}. Papierkorb-Elemente sind normal wiederherstellbar.")
+    log_path = write_cleanup_log(log)
+    where = "im Papierkorb" if sys.platform == "darwin" else "in ~/.cleanup-tool-trash"
+    print(f"\nProtokoll gespeichert unter {log_path}.")
+    print(f"Entfernte Dateien liegen {where} und sind wiederherstellbar – Platz wird erst frei, wenn du ihn leerst.")
+
+
+def cmd_gui(args) -> None:
+    try:
+        from cleaner.gui import main as gui_main
+    except ImportError as e:  # tkinter is optional in some Python builds (e.g. Homebrew)
+        sys.exit(
+            f"Die GUI braucht tkinter, das in diesem Python fehlt ({e}).\n"
+            "macOS mit Homebrew-Python: `brew install python-tk`, "
+            "Debian/Kali: `sudo apt install python3-tk`."
+        )
+    gui_main(args.config, args.category)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -104,6 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan_p.set_defaults(func=cmd_scan)
     clean_p = sub.add_parser("clean", parents=[common], help="Bericht anzeigen und interaktiv aufräumen")
     clean_p.set_defaults(func=cmd_clean)
+    gui_p = sub.add_parser("gui", parents=[common], help="Grafische Oberfläche öffnen")
+    gui_p.set_defaults(func=cmd_gui)
     return parser
 
 
