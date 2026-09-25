@@ -64,6 +64,27 @@ def scan_llm_models(config: dict) -> list[Finding]:
     return findings
 
 
+OLLAMA_DEFAULT_REGISTRY = "registry.ollama.ai"
+
+
+def _ollama_model_name(rel: Path) -> str | None:
+    """Turn a manifest path (relative to manifests/) into the name `ollama rm`
+    expects: <host>/<namespace...>/<model>/<tag> ->
+      registry.ollama.ai/library/llama3/8b     -> "llama3:8b"
+      registry.ollama.ai/someuser/mymodel/q4   -> "someuser/mymodel:q4"
+      hf.co/bartowski/Llama-3.2-1B-GGUF/latest -> "hf.co/bartowski/Llama-3.2-1B-GGUF:latest"
+    """
+    parts = rel.parts
+    if len(parts) < 3:
+        return None
+    host, *repo, tag = parts
+    if host == OLLAMA_DEFAULT_REGISTRY:
+        if repo[:1] == ["library"] and len(repo) > 1:
+            repo = repo[1:]
+        return f"{'/'.join(repo)}:{tag}"
+    return f"{host}/{'/'.join(repo)}:{tag}"
+
+
 def _scan_ollama_manifests(config: dict) -> list[Finding]:
     manifests_root = OLLAMA_HOME / "models" / "manifests"
     if not manifests_root.is_dir():
@@ -76,10 +97,9 @@ def _scan_ollama_manifests(config: dict) -> list[Finding]:
         except (json.JSONDecodeError, OSError):
             continue
 
-        model, tag = manifest_path.parent.name, manifest_path.name
-        # e.g. manifests/registry.ollama.ai/library/llama3/8b -> "llama3:8b"
-        namespace = manifest_path.parent.parent.name
-        name = f"{namespace}/{model}:{tag}" if namespace != "library" else f"{model}:{tag}"
+        name = _ollama_model_name(manifest_path.relative_to(manifests_root))
+        if name is None:
+            continue
 
         size = data.get("config", {}).get("size", 0)
         size += sum(layer.get("size", 0) for layer in data.get("layers", []))
@@ -169,12 +189,19 @@ def scan_system_junk(config: dict) -> list[Finding]:
 
     for base in config["system_junk_dirs"]:
         base_path = Path(base)
-        if not base_path.is_dir() or not _eligible(base_path, config):
+        if not base_path.is_dir():
             continue
 
         if base_path.name in SINGLE_ENTRY_DIR_NAMES:
-            all_candidates.append((base_path, base_path))
+            if _eligible(base_path, config):
+                all_candidates.append((base_path, base_path))
+        elif is_protected(base_path, config):
+            continue
         else:
+            # Deliberately no age check on base_path itself: a parent like
+            # ~/Library/Caches has its mtime bumped whenever any app adds or
+            # removes an entry, which would hide every stale child in it.
+            # Each child is checked on its own below.
             try:
                 all_candidates.extend((c, base_path) for c in base_path.iterdir() if _eligible(c, config))
             except OSError:
@@ -197,7 +224,11 @@ def _scan_installers(config: dict) -> list[Finding]:
         base_path = Path(base)
         if not base_path.is_dir():
             continue
-        for entry in base_path.iterdir():
+        try:
+            entries = list(base_path.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
             if entry.suffix.lower() not in extensions:
                 continue
             try:
@@ -239,9 +270,14 @@ def _scan_project_leftovers_in(root: str, config: dict) -> list[Finding]:
         for name in matched:
             candidate = Path(dirpath) / name
             dirnames.remove(name)  # don't descend into it
-            if not _eligible(candidate, config):
+            # A symlinked node_modules (pnpm/workspaces) only removes the link,
+            # while _dir_size would count the target's whole tree.
+            if candidate.is_symlink() or not _eligible(candidate, config):
                 continue
-            modified = _mtime(candidate)
+            try:
+                modified = _mtime(candidate)
+            except OSError:
+                continue
             age_days = (datetime.now() - modified).days
             if age_days < config["project_leftover_min_age_days"]:
                 continue
@@ -306,7 +342,7 @@ def _group_by_key(groups: list[list[Path]], key_of: dict[Path, str]) -> list[lis
     return refined
 
 
-def _scan_size_bucket(base: str, min_size: int, config: dict) -> list[tuple[Path, int, float]]:
+def _scan_size_bucket(base: str, min_size: int, config: dict) -> list[tuple[Path, os.stat_result]]:
     base_path = Path(base)
     if not base_path.is_dir():
         return []
@@ -316,7 +352,7 @@ def _scan_size_bucket(base: str, min_size: int, config: dict) -> list[tuple[Path
             continue
         if not _eligible(entry, config, datetime.fromtimestamp(stat_result.st_mtime)):
             continue
-        found.append((entry, stat_result.st_size, stat_result.st_mtime))
+        found.append((entry, stat_result))
     return found
 
 
@@ -332,11 +368,19 @@ def scan_duplicates(config: dict) -> list[Finding]:
     by_size: dict[int, list[Path]] = {}
     mtimes: dict[Path, float] = {}
     sizes: dict[Path, int] = {}
+    seen_inodes: set[tuple[int, int]] = set()
     for found in per_base:
-        for path, size, mtime in found:
-            by_size.setdefault(size, []).append(path)
-            mtimes[path] = mtime
-            sizes[path] = size
+        for path, st in found:
+            # Hard links (and overlapping duplicate_dirs) reach the same inode
+            # through several paths: that's one file on disk, not a duplicate,
+            # and trashing one of its names frees nothing.
+            inode = (st.st_dev, st.st_ino)
+            if inode in seen_inodes:
+                continue
+            seen_inodes.add(inode)
+            by_size.setdefault(st.st_size, []).append(path)
+            mtimes[path] = st.st_mtime
+            sizes[path] = st.st_size
 
     size_groups = [g for g in by_size.values() if len(g) > 1]
     if not size_groups:
@@ -481,9 +525,17 @@ def _parse_docker_time(raw: str) -> datetime:
     return datetime.now()
 
 
+def _docker_old_enough(created: datetime, config: dict) -> bool:
+    # docker rm/rmi is irreversible, so something created minutes ago (a
+    # container you just stopped to restart) must not show up as a candidate.
+    return (datetime.now() - created).days >= config["docker_min_age_days"]
+
+
 def _parse_docker_size(raw: str) -> int:
-    raw = raw.strip().split(" ")[0].upper()  # "1.2GB" or "0B (virtual 512MB)" -> "0B"
-    for suffix, factor in (("TB", 1024**4), ("GB", 1024**3), ("MB", 1024**2), ("KB", 1024), ("B", 1)):
+    # Docker prints SI units (kB/MB/GB = powers of 1000), e.g. "1.2GB" or
+    # "0B (virtual 512MB)" -> "0B".
+    raw = raw.strip().split(" ")[0].upper()
+    for suffix, factor in (("TB", 1000**4), ("GB", 1000**3), ("MB", 1000**2), ("KB", 1000), ("B", 1)):
         if raw.endswith(suffix):
             try:
                 return int(float(raw[: -len(suffix)]) * factor)
@@ -502,11 +554,14 @@ def _scan_docker_dangling_images(config: dict) -> list[Finding]:
         if len(parts) != 3:
             continue
         image_id, size_raw, created_raw = parts
+        created = _parse_docker_time(created_raw)
+        if not _docker_old_enough(created, config):
+            continue
         findings.append(Finding(
             path=Path(f"docker-image://{image_id}"),
             category="docker",
             size_bytes=_parse_docker_size(size_raw),
-            modified=_parse_docker_time(created_raw),
+            modified=created,
             reason=f"Dangling Docker-Image {image_id} – kein Tag/Container verweist mehr darauf",
             action="docker_rmi",
             action_arg=image_id,
@@ -527,11 +582,14 @@ def _scan_docker_stopped_containers(config: dict) -> list[Finding]:
         if len(parts) != 4:
             continue
         cid, size_raw, created_raw, name = parts
+        created = _parse_docker_time(created_raw)
+        if not _docker_old_enough(created, config):
+            continue
         findings.append(Finding(
             path=Path(f"docker-container://{cid}"),
             category="docker",
             size_bytes=_parse_docker_size(size_raw),
-            modified=_parse_docker_time(created_raw),
+            modified=created,
             reason=f"Gestoppter Container '{name}' ({cid})",
             action="docker_rm_container",
             action_arg=cid,

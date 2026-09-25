@@ -14,10 +14,10 @@ und der Entfernungs-Mechanismus passen sich automatisch der Plattform an.
 | **LLM-Modelldateien** | Ollama-Modelle (`~/.ollama/models`) + frei liegende Gewichtsdateien (`.gguf`, `.bin`, `.safetensors`, `.ckpt`, `.pt`) | Ollama-Manifest bzw. Dateigröße + Alter | beide |
 | **System-Müll** | macOS: `~/Library/Caches`, `~/Library/Logs`, Xcode `DerivedData`. Linux: `~/.cache`. Beide: npm/pip-Cache, alte Installer (`.dmg`/`.pkg`, nur macOS) | Alter der letzten Änderung | beide |
 | **Alte Projekt-Reste** | `node_modules`, `venv`/`.venv`, `__pycache__`, `dist`, `build`, `target` unter deinen Projekt-Ordnern | Ordner seit X Tagen unangetastet – per Paketmanager/Build neu erzeugbar | beide |
-| **Duplikate** | Byte-identische Dateien (Größe → 64KB-Prefix-Hash → SHA-256) über mehrere Ordner verteilt | Gestaffelter Hash-Vergleich, älteste Kopie bleibt als Original | beide |
+| **Duplikate** | Byte-identische Dateien (Größe → 64KB-Prefix-Hash → SHA-256) über mehrere Ordner verteilt. Symlinks und Hardlinks zählen nicht als Duplikat (bringen keinen Platz) | Gestaffelter Hash-Vergleich, älteste Kopie bleibt als Original | beide |
 | **APT-Paket-Cache** | Alte `.deb`-Archive in `/var/cache/apt/archives` | Alter der Datei | nur Linux, **nur Bericht** |
 | **Pentest-Output/Loot** | Alte Engagement-Ordner/Dateien unter `~/loot`, `~/.msf4/loot`, `~/nmap-output`, `~/engagements` (konfigurierbar) | Ordner/Datei seit X Tagen unangetastet | nur Linux |
-| **Docker** | Dangling Images, gestoppte Container, verwaiste Volumes | `docker images/ps/volume ls` mit den passenden Filtern | beide, wenn `docker` installiert & Daemon erreichbar |
+| **Docker** | Dangling Images, gestoppte Container (älter als `docker_min_age_days`, Default 7), verwaiste Volumes | `docker images/ps/volume ls` mit den passenden Filtern | beide, wenn `docker` installiert & Daemon erreichbar |
 
 Konfigurierbar über eine eigene `config.json` (Kopie von `config.example.json`
 für macOS bzw. `config.linux.example.json` für Kali/Linux).
@@ -55,6 +55,10 @@ entfernt werden und nicht im Papierkorb landen.
   `~/.aws`, `~/.mozilla`, die Metasploit-Datenbank – unabhängig von den
   Scan-Ergebnissen.
 - Es wird nie außerhalb von `$HOME` operiert.
+- **Die letzte Kopie bleibt immer:** taucht dieselbe Datei in zwei Kategorien
+  auf (z.B. eine `.gguf` unter *LLM-Modelle* und als Original eines
+  *Duplikats*) und du wählst beide aus, überspringt das Tool die Entfernung,
+  die sonst die letzte Kopie treffen würde.
 - **Pentest-Loot ist absichtlich vorsichtig:** die Loot-Funde gehen wie alles
   andere nur in den Papierkorb/die Quarantäne, nie direkt weg – falls ein
   Report doch noch auf die Rohdaten zurückgreifen muss.
@@ -109,6 +113,14 @@ nach den Nummern der Funde, die entfernt werden sollen (`1,3,5`, `all`, oder
 Enter zum Überspringen). Jeder Lauf schreibt ein Protokoll
 (`cleanup-log-<timestamp>.json`) mit dem tatsächlichen Ergebnis pro Fund.
 
+## Tests
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Nur Standardbibliothek; jeder Test läuft in einem temporären Fake-`$HOME`.
+
 ## Voraussetzungen
 
 - macOS oder Linux (Kali unter WSL eingeschlossen)
@@ -133,4 +145,5 @@ cleaner/
   util.py                     Kleine Helfer (Thread-Pool, os.scandir-Walker)
 config.example.json           Vorlage für macOS
 config.linux.example.json     Vorlage für Linux/Kali
+tests/                        Regressionstests (unittest)
 ```

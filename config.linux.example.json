@@ -20,5 +20,6 @@
   "pentest_loot_min_age_days": 30,
 
   "protected_paths": ["/home/YOU/.ssh", "/home/YOU/.gnupg", "/home/YOU/.msf4/msf.db"],
+  "docker_min_age_days": 7,
   "min_untouched_hours": 24
 }

@@ -20,7 +20,7 @@ from .config import load_config
 from .findings import Finding
 from .report import CATEGORY_LABELS, human_size, write_cleanup_log
 from .scanners import ALL_SCANNERS, run_scanners
-from .trash import IRREVERSIBLE_ACTIONS, TrashError, remove
+from .trash import IRREVERSIBLE_ACTIONS, LastCopyGuard, TrashError, remove
 
 SCANNER_LABELS = {
     "llm": "LLM-Modelle",
@@ -61,6 +61,7 @@ class CleanupApp:
         self.findings: dict[str, Finding] = {}   # child iid -> finding
         self.errors: dict[str, str] = {}         # child iid -> last removal error
         self.selected: set[str] = set()
+        self.guard = LastCopyGuard([])
         self.busy = False
 
         root.title("Aufräumen – mac-cleanup-tool")
@@ -196,6 +197,7 @@ class CleanupApp:
         self.findings.clear()
         self.errors.clear()
         self.selected.clear()
+        self.guard = LastCopyGuard(findings)
 
         by_category: dict[str, list[Finding]] = {}
         for f in findings:
@@ -380,7 +382,7 @@ class CleanupApp:
         both_copies = [f for f in chosen if f.category == "duplicate" and f.extra.get("original") in chosen_paths]
         if both_copies:
             message += (f"\n\n⚠ Bei {len(both_copies)} Duplikat(en) ist auch das Original ausgewählt "
-                        "(z.B. unter LLM-Modelle) – dann ist keine Kopie mehr übrig.")
+                        "(z.B. unter LLM-Modelle). Die jeweils letzte Kopie wird automatisch behalten.")
         if irreversible:
             names = "\n".join(f"  • {f.action_arg}" for f in irreversible[:8])
             more = f"\n  … und {len(irreversible) - 8} weitere" if len(irreversible) > 8 else ""
@@ -395,13 +397,20 @@ class CleanupApp:
     def _start_remove(self, iids: list[str]) -> None:
         config = load_config(self.config_path)
         items = [(i, self.findings[i]) for i in iids]
+        guard = self.guard  # only this worker touches it until "remove_done"
         self._set_busy(True, f"Entferne {len(items)} Fund(e)…")
 
         def work() -> None:
             log = []
             for iid, f in items:
+                blocked = guard.blocks(f)
+                if blocked:
+                    log.append({"path": str(f.path), "status": "skipped", "reason": blocked})
+                    self.events.put(("failed", iid, blocked))
+                    continue
                 try:
                     remove(f, config)
+                    guard.mark_removed(f)
                     log.append({"path": str(f.path), "status": "removed", "action": f.action})
                     self.events.put(("removed", iid))
                 except (TrashError, OSError) as e:
@@ -452,7 +461,8 @@ class CleanupApp:
             self._set_busy(False)
             summary = f"Fertig. Protokoll: {event[1]}"
             if failed:
-                summary = f"{failed} Fund(e) konnten nicht entfernt werden (rot markiert, Details beim Anklicken).\n\n" + summary
+                summary = (f"{failed} Fund(e) wurden nicht entfernt (rot markiert, Grund beim Anklicken).\n\n"
+                           + summary)
             if sys.platform == "darwin":
                 summary += "\n\nTipp: Platz wird erst frei, wenn du den Papierkorb leerst."
             else:

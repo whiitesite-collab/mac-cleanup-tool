@@ -45,6 +45,9 @@ _COMMON_CONFIG = {
         str(HOME / "engagements"),
     ],
     "pentest_loot_min_age_days": 30,
+
+    # docker rm/rmi can't be undone - only list things at least this old.
+    "docker_min_age_days": 7,
 }
 
 _MACOS_CONFIG = {

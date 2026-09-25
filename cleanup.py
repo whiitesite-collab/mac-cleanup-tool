@@ -20,7 +20,7 @@ from cleaner.config import load_config
 from cleaner.findings import Finding
 from cleaner.report import print_report, write_cleanup_log, write_json_report
 from cleaner.scanners import ALL_SCANNERS, run_scanners
-from cleaner.trash import TrashError, remove
+from cleaner.trash import LastCopyGuard, TrashError, remove
 
 
 def cmd_scan(args) -> None:
@@ -40,6 +40,7 @@ def cmd_clean(args) -> None:
 
     print_report(findings)
     log = []
+    guard = LastCopyGuard(findings)
 
     by_category: dict[str, list[Finding]] = {}
     for f in findings:
@@ -68,8 +69,14 @@ def cmd_clean(args) -> None:
             selected = [items[i - 1] for i in indices if 1 <= i <= len(items)]
 
         for f in selected:
+            blocked = guard.blocks(f)
+            if blocked:
+                print(f"  ⤫ {blocked}")
+                log.append({"path": str(f.path), "status": "skipped", "reason": blocked})
+                continue
             try:
                 remove(f, config)
+                guard.mark_removed(f)
                 print(f"  ✓ entfernt: {f.path}")
                 log.append({"path": str(f.path), "status": "removed", "action": f.action})
             except TrashError as e:
@@ -77,7 +84,9 @@ def cmd_clean(args) -> None:
                 log.append({"path": str(f.path), "status": "failed", "error": str(e)})
 
     log_path = write_cleanup_log(log)
-    print(f"\nProtokoll gespeichert unter {log_path}. Papierkorb-Elemente sind normal wiederherstellbar.")
+    where = "im Papierkorb" if sys.platform == "darwin" else "in ~/.cleanup-tool-trash"
+    print(f"\nProtokoll gespeichert unter {log_path}.")
+    print(f"Entfernte Dateien liegen {where} und sind wiederherstellbar – Platz wird erst frei, wenn du ihn leerst.")
 
 
 def cmd_gui(args) -> None:

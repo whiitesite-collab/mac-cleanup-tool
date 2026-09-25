@@ -19,5 +19,6 @@
   "duplicate_min_size_mb": 5,
 
   "protected_paths": ["/Users/YOU/Library/Keychains"],
+  "docker_min_age_days": 7,
   "min_untouched_hours": 24
 }

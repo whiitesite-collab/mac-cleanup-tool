@@ -25,8 +25,10 @@ def parallel_map(func: Callable[[T], R], items: Iterable[T], max_workers: int = 
 def iter_files(root: Path) -> Iterator[tuple[Path, os.stat_result]]:
     """Walk root and yield (path, stat_result) for every regular file, doing
     exactly one stat() per file instead of the is_file() + stat() + suffix
-    pattern repeating the syscall. Symlinked directories are not followed,
-    matching os.walk's default and avoiding symlink-cycle loops."""
+    pattern repeating the syscall. Symlinks are skipped entirely: symlinked
+    directories would risk cycles, and a symlinked file is not a file of its
+    own - it would show up as a "duplicate" of its target (trashing the real
+    file would leave the link dangling) and removing it frees no space."""
     stack = [root]
     while stack:
         current = stack.pop()
@@ -38,7 +40,7 @@ def iter_files(root: Path) -> Iterator[tuple[Path, os.stat_result]]:
             try:
                 if entry.is_dir(follow_symlinks=False):
                     stack.append(entry.path)
-                elif entry.is_file():
-                    yield Path(entry.path), entry.stat()
+                elif entry.is_file(follow_symlinks=False):
+                    yield Path(entry.path), entry.stat(follow_symlinks=False)
             except OSError:
                 continue
