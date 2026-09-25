@@ -1,11 +1,27 @@
 # mac-cleanup-tool
 
-Scannt mehrere Ordner nach reklamierbarem Speicherplatz, erklärt für jeden
-Fund, **was die Datei/der Ordner ist und warum sie infrage kommt**, und
-entfernt nichts, ohne dass du es explizit bestätigst.
+**Platz auf dem Mac schaffen – ohne Risiko.** Findet alte KI-Modelle, doppelte
+Dateien, vergessene Caches und Projekt-Reste, erklärt bei jedem Fund, **was er
+ist und warum er vorgeschlagen wird**, und entfernt nur, was du selbst abhakst.
+
+📖 **Vollständige Dokumentation: [whiitesite-collab.github.io/mac-cleanup-tool](https://whiitesite-collab.github.io/mac-cleanup-tool/)**
+
+![Die Oberfläche nach einem Scan: Funde nach Kategorie mit Größe, Alter, Entfernungsweg und Pfad](docs/screenshot.png)
 
 Läuft auf **macOS** und **Linux** (inkl. Kali unter WSL) – die Default-Pfade
 und der Entfernungs-Mechanismus passen sich automatisch der Plattform an.
+Reines Python, keine zusätzlichen Pakete.
+
+## Schnellstart (Mac)
+
+1. **Python installieren** von [python.org/downloads/macos](https://www.python.org/downloads/macos/)
+   (Apples mitgeliefertes Python zeigt nur ein schwarzes Fenster – siehe unten).
+2. **Herunterladen:** [ZIP](https://github.com/whiitesite-collab/mac-cleanup-tool/archive/refs/heads/main.zip)
+   entpacken – oder `git clone https://github.com/whiitesite-collab/mac-cleanup-tool.git`
+3. **Starten:** im Finder **`Aufraeumen.command`** doppelklicken
+   (beim ersten Mal ggf. Rechtsklick → Öffnen).
+4. Kategorien anhaken → **Scannen** → Funde abhaken → **Ausgewählte entfernen…**
+   → danach **Papierkorb leeren**.
 
 ## Was wird gescannt?
 
@@ -151,4 +167,5 @@ cleaner/
 config.example.json           Vorlage für macOS
 config.linux.example.json     Vorlage für Linux/Kali
 tests/                        Regressionstests (unittest)
+docs/                         Doku-Webseite (GitHub Pages) + Screenshot
 ```

@@ -105,7 +105,7 @@ class CleanupApp:
         self.tree.heading("action", text="Entfernen per")
         self.tree.heading("path", text="Pfad")
         self.tree.column("#0", width=360, stretch=False)
-        self.tree.column("size", width=90, anchor="e", stretch=False)
+        self.tree.column("size", width=110, anchor="e", stretch=False)
         self.tree.column("age", width=80, anchor="e", stretch=False)
         self.tree.column("action", width=170, stretch=False)
         self.tree.column("path", width=400)
@@ -318,7 +318,7 @@ class CleanupApp:
         f = self.findings.get(iid)
         if f is None:
             return
-        lines = [f"{f.path}", f.reason]
+        lines = [_display_path(f.path), f.reason]
         if f.action in IRREVERSIBLE_ACTIONS:
             lines.append("⚠ Wird über ein externes Programm entfernt und landet NICHT im Papierkorb – "
                          "nicht rückgängig zu machen.")

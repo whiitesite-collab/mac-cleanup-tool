@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mac-cleanup-tool – Platz auf dem Mac schaffen</title>
+<meta name="description" content="Findet alte KI-Modelle, Duplikate, Caches und Projekt-Reste auf dem Mac, erklärt jeden Fund und entfernt nur, was du bestätigst.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23167a55'/%3E%3Cpath d='M9 12h14l-1.3 12.2a2 2 0 0 1-2 1.8h-7.4a2 2 0 0 1-2-1.8z M7 9h18 M13 9V7h6v2' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f7f8f6;
+    --surface: #ffffff;
+    --surface-2: #eef2ee;
+    --text: #17201b;
+    --muted: #56615a;
+    --border: #dbe2dc;
+    --accent: #167a55;
+    --accent-strong: #0f5e41;
+    --accent-soft: #e2f3ea;
+    --warn: #9a5b00;
+    --warn-soft: #fdf1dc;
+    --code-bg: #1d2520;
+    --code-text: #e7efe9;
+    --shadow: 0 1px 2px rgba(20, 30, 25, .06), 0 8px 24px rgba(20, 30, 25, .08);
+    --radius: 14px;
+    --max: 1080px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1411;
+      --surface: #161d19;
+      --surface-2: #1c2520;
+      --text: #e6ede8;
+      --muted: #9aa8a0;
+      --border: #28332d;
+      --accent: #3fbf8a;
+      --accent-strong: #6fd6aa;
+      --accent-soft: #173327;
+      --warn: #f0b458;
+      --warn-soft: #33270f;
+      --code-bg: #0b0f0d;
+      --code-text: #dfe8e2;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1411;
+    --surface: #161d19;
+    --surface-2: #1c2520;
+    --text: #e6ede8;
+    --muted: #9aa8a0;
+    --border: #28332d;
+    --accent: #3fbf8a;
+    --accent-strong: #6fd6aa;
+    --accent-soft: #173327;
+    --warn: #f0b458;
+    --warn-soft: #33270f;
+    --code-bg: #0b0f0d;
+    --code-text: #dfe8e2;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:hover { color: var(--accent-strong); }
+  img { max-width: 100%; display: block; }
+  code, pre, kbd { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+  :not(pre) > code {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .08em .4em;
+    font-size: .88em;
+    overflow-wrap: anywhere;
+  }
+  kbd {
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 0 .35em;
+    font-size: .85em;
+    background: var(--surface);
+  }
+
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 16px; }
+
+  /* Header */
+  header.top {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: saturate(160%) blur(12px);
+    -webkit-backdrop-filter: saturate(160%) blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  header.top .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); text-decoration: none; white-space: nowrap; }
+  .brand svg { flex: none; }
+  nav.links { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; flex: 1; }
+  nav.links::-webkit-scrollbar { display: none; }
+  nav.links a {
+    color: var(--muted); text-decoration: none; font-size: .92rem;
+    padding: 6px 10px; border-radius: 8px; white-space: nowrap;
+  }
+  nav.links a:hover { color: var(--text); background: var(--surface-2); }
+  .theme-toggle {
+    flex: none; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    width: 36px; height: 36px; border-radius: 10px; cursor: pointer; display: grid; place-items: center;
+  }
+
+  /* Hero */
+  .hero { padding-top: 72px; padding-bottom: 40px; text-align: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent-soft); color: var(--accent-strong);
+    padding: 6px 12px; border-radius: 999px; font-size: .85rem; font-weight: 600;
+    max-width: 100%; text-wrap: balance;
+  }
+  .hero h1 {
+    font-size: clamp(2rem, 5.2vw, 3.4rem); line-height: 1.1; letter-spacing: -.025em;
+    margin: 18px auto 16px; max-width: 18ch; text-wrap: balance;
+  }
+  .hero h1 span { color: var(--accent); }
+  .hero p.lead { font-size: clamp(1.05rem, 2.2vw, 1.25rem); color: var(--muted); max-width: 44rem; margin: 0 auto 28px; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; font-weight: 600; text-decoration: none;
+    padding: 12px 20px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+  }
+  .btn:hover { color: var(--text); border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-strong); color: #fff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { color: #06140e; } }
+  :root[data-theme="dark"] .btn.primary { color: #06140e; }
+  .hero .meta { margin-top: 16px; color: var(--muted); font-size: .88rem; }
+
+  .shot {
+    margin: 48px auto 0; max-width: 980px; border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--surface);
+  }
+  .shot .bar { display: flex; gap: 7px; padding: 11px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+  .shot .bar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  .shot .bar i:nth-child(1) { background: #ff5f57; }
+  .shot .bar i:nth-child(2) { background: #febc2e; }
+  .shot .bar i:nth-child(3) { background: #28c840; }
+  figcaption { text-align: center; color: var(--muted); font-size: .88rem; margin-top: 12px; }
+
+  /* Sections */
+  section { padding: 64px 0; }
+  section + section { border-top: 1px solid var(--border); }
+  h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); letter-spacing: -.02em; line-height: 1.2; margin: 0 0 10px; }
+  h3 { font-size: 1.12rem; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 46rem; }
+
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px; box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+  }
+  .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+  .card .icon {
+    width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); margin-bottom: 14px;
+  }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tag {
+    font-size: .75rem; font-weight: 600; padding: 3px 8px; border-radius: 999px;
+    background: var(--surface-2); color: var(--muted); border: 1px solid var(--border);
+  }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+
+  /* Steps */
+  .steps { counter-reset: step; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+  .step { position: relative; padding-top: 52px; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; top: 20px; left: 20px; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: .9rem; display: grid; place-items: center;
+  }
+
+  /* Install */
+  .install { display: grid; gap: 28px; }
+  .install-step { display: grid; grid-template-columns: 40px 1fr; gap: 16px; }
+  .install-step .num {
+    width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-strong);
+    font-weight: 700; display: grid; place-items: center;
+  }
+  .install-step h3 { margin-top: 8px; }
+  .install-step p { margin: 6px 0 0; color: var(--muted); }
+  .install-step > div { min-width: 0; }
+
+  pre {
+    position: relative; margin: 12px 0 0; background: var(--code-bg); color: var(--code-text);
+    border-radius: 12px; padding: 16px 56px 16px 16px; overflow-x: auto; font-size: .88rem; line-height: 1.55;
+  }
+  pre .c { color: #8fa598; }
+  .copy {
+    position: absolute; top: 8px; right: 8px; border: 1px solid rgba(255, 255, 255, .15);
+    background: rgba(255, 255, 255, .06); color: var(--code-text); border-radius: 8px;
+    font: 600 .75rem/1 inherit; padding: 7px 9px; cursor: pointer;
+  }
+  .copy:hover { background: rgba(255, 255, 255, .14); }
+
+  .callout {
+    border-radius: 12px; padding: 14px 16px; margin-top: 14px; font-size: .94rem;
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  .callout.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+  .callout strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* Safety list */
+  .checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+  .checks li { display: grid; grid-template-columns: 24px 1fr; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .checks li svg { color: var(--accent); margin-top: 3px; }
+  .checks li.warn svg { color: var(--warn); }
+  .checks li span { color: var(--muted); font-size: .95rem; }
+  .checks li b { color: var(--text); }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td code { white-space: nowrap; }
+  td.default { color: var(--muted); white-space: nowrap; }
+  h3.table-title { margin: 32px 0 12px; }
+
+  /* FAQ */
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0 18px; }
+  details + details { margin-top: 10px; }
+  summary { cursor: pointer; font-weight: 600; padding: 16px 0; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--accent); font-size: 1.3rem; line-height: 1; }
+  details[open] summary::after { content: "–"; }
+  details > div { padding: 0 0 18px; color: var(--muted); }
+  details > div p { margin: 0 0 10px; }
+  details > div p:last-child { margin-bottom: 0; }
+
+  footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--muted); font-size: .9rem; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+  @media (max-width: 640px) {
+    .hero { padding-top: 48px; }
+    section { padding: 48px 0; }
+    .install-step { grid-template-columns: 1fr; gap: 10px; }
+    header.top .wrap { gap: 10px; }
+    .brand span { display: none; }
+    .eyebrow { font-size: .78rem; }
+    .hero p.lead { text-wrap: pretty; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="mac-cleanup-tool, nach oben">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M9 12h14l-1.3 12.2a2 2 0 0 1-2 1.8h-7.4a2 2 0 0 1-2-1.8z M7 9h18 M13 9V7h6v2" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>mac-cleanup-tool</span>
+    </a>
+    <nav class="links" aria-label="Abschnitte">
+      <a href="#funktionen">Funktionen</a>
+      <a href="#installation">Installation</a>
+      <a href="#anleitung">Anleitung</a>
+      <a href="#sicherheit">Sicherheit</a>
+      <a href="#terminal">Terminal</a>
+      <a href="#konfiguration">Konfiguration</a>
+      <a href="#hilfe">Hilfe</a>
+      <a href="https://github.com/whiitesite-collab/mac-cleanup-tool">GitHub ↗</a>
+    </nav>
+    <button class="theme-toggle" id="theme" type="button" aria-label="Hell/Dunkel umschalten" title="Hell/Dunkel umschalten">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero wrap">
+    <span class="eyebrow">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+      Kostenlos · Open Source · nichts wird ungefragt gelöscht
+    </span>
+    <h1>Platz auf dem Mac schaffen&nbsp;– <span>ohne&nbsp;Risiko.</span></h1>
+    <p class="lead">Findet alte KI-Modelle, doppelte Dateien, vergessene Caches und Projekt-Reste. Erklärt bei jedem Fund, was er ist und warum er vorgeschlagen wird – und entfernt nur, was du selbst abhakst.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/whiitesite-collab/mac-cleanup-tool/archive/refs/heads/main.zip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"/></svg>
+        Herunterladen (ZIP)
+      </a>
+      <a class="btn" href="#installation">Installationsanleitung</a>
+    </div>
+    <p class="meta">macOS &amp; Linux · Python 3.9+ · keine zusätzlichen Pakete · MIT-Lizenz</p>
+
+    <figure style="margin:0">
+      <div class="shot">
+        <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+        <img src="screenshot.png" width="1100" height="680" alt="Die Oberfläche von mac-cleanup-tool: Funde gruppiert nach LLM-Modelldateien, Duplikaten, System-Müll und alten Projekt-Resten, jeweils mit Größe, Alter, Entfernungsweg und Pfad; unten Details zum ausgewählten Fund.">
+      </div>
+      <figcaption>Nach dem Scan: Funde nach Kategorie, mit Größe, Alter und Erklärung. Orange = wird endgültig gelöscht (nicht über den Papierkorb).</figcaption>
+    </figure>
+  </div>
+
+  <section id="funktionen">
+    <div class="wrap">
+      <h2>Was gefunden wird</h2>
+      <p class="sub">Sieben Kategorien, jede einzeln an- und abschaltbar. Alles mit Mindestalter und Mindestgröße, damit nur wirklich Vergessenes auftaucht.</p>
+      <div class="grid">
+        <article class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg></div>
+          <h3>KI-/LLM-Modelle</h3>
+          <p>Ollama-Modelle (auch von Hugging Face) und lose Gewichtsdateien wie <code>.gguf</code>, <code>.safetensors</code>, <code>.ckpt</code> (ab 500 MB) – jeweils seit 30 Tagen unbenutzt.</p>
+          <div class="tags"><span class="tag">Mac</span><span class="tag">Linux</span></div>
+        </article>
+        <article class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></div>
+          <h3>Duplikate</h3>
+          <p>Byte-identische Dateien in Downloads, Schreibtisch und Dokumente. Die älteste Kopie bleibt als Original – und die letzte Kopie wird nie entfernt.</p>
+          <div class="tags"><span class="tag">Mac</span><span class="tag">Linux</span></div>
+        </article>
+        <article class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h18M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M9 7V4h6v3"/></svg></div>
+          <h3>System-Müll</h3>
+          <p>Alte App-Caches und Logs in <code>~/Library</code>, Xcode-DerivedData, npm-/pip-Caches und vergessene <code>.dmg</code>/<code>.pkg</code>-Installer.</p>
+          <div class="tags"><span class="tag">Mac</span><span class="tag">Linux</span></div>
+        </article>
+        <article class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M10 13l-2 2 2 2M14 13l2 2-2 2"/></svg></div>
+          <h3>Alte Projekt-Reste</h3>
+          <p><code>node_modules</code>, <code>venv</code>, <code>build</code>, <code>dist</code> &amp; Co. in Projekten, die seit 60 Tagen niemand angefasst hat – jederzeit neu erzeugbar.</p>
+          <div class="tags"><span class="tag">Mac</span><span class="tag">Linux</span></div>
+        </article>
+        <article class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2-3h6l2 3h4v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M7 12V6a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v6"/></svg></div>
+          <h3>Docker</h3>
+          <p>Verwaiste Images, gestoppte Container (älter als 7 Tage) und nicht mehr genutzte Volumes.</p>
+          <div class="tags"><span class="tag">Mac</span><span class="tag">Linux</span><span class="tag warn">endgültig</span></div>
+        </article>
+        <article class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8l-9-5-9 5v8l9 5 9-5z"/><path d="M3.3 7.5 12 12l8.7-4.5M12 22V12"/></svg></div>
+          <h3>APT-Cache &amp; Pentest-Loot</h3>
+          <p>Für Kali/Linux: alte <code>.deb</code>-Pakete (nur Bericht, braucht sudo) und alte Engagement-Ordner unter <code>~/loot</code> &amp; Co.</p>
+          <div class="tags"><span class="tag">Linux</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="installation">
+    <div class="wrap">
+      <h2>Installation auf dem Mac</h2>
+      <p class="sub">Einmalig etwa fünf Minuten. Du brauchst kein Programmier-Wissen – nur zum Einrichten einmal das Terminal.</p>
+
+      <div class="install">
+        <div class="install-step">
+          <div class="num">1</div>
+          <div>
+            <h3>Python installieren</h3>
+            <p>Lade den Installer von <a href="https://www.python.org/downloads/macos/">python.org/downloads/macos</a> (neueste Version 3.x, „macOS 64-bit universal2 installer“) und installiere ihn wie jedes andere Programm.</p>
+            <div class="callout warn"><strong>Warum nicht das Python, das schon auf dem Mac ist?</strong>Apples mitgeliefertes <code>/usr/bin/python3</code> enthält eine veraltete Grafik-Bibliothek (Tk 8.5) – das Fenster bliebe schwarz. Mit Homebrew geht alternativ auch <code>brew install python python-tk</code>.</div>
+          </div>
+        </div>
+
+        <div class="install-step">
+          <div class="num">2</div>
+          <div>
+            <h3>Tool herunterladen</h3>
+            <p><b>Ohne Terminal:</b> <a href="https://github.com/whiitesite-collab/mac-cleanup-tool/archive/refs/heads/main.zip">ZIP herunterladen</a>, doppelklicken zum Entpacken und den Ordner z.&nbsp;B. in deinen Benutzerordner legen.</p>
+            <p><b>Mit Terminal</b> (<kbd>⌘</kbd> + <kbd>Leertaste</kbd> → „Terminal“) – so lässt es sich später mit <code>git pull</code> aktualisieren:</p>
+<pre><code>cd ~
+git clone https://github.com/whiitesite-collab/mac-cleanup-tool.git</code></pre>
+          </div>
+        </div>
+
+        <div class="install-step">
+          <div class="num">3</div>
+          <div>
+            <h3>Starten</h3>
+            <p>Im Finder im Ordner <code>mac-cleanup-tool</code> auf <b><code>Aufraeumen.command</code></b> doppelklicken. Es sucht sich das passende Python selbst.</p>
+            <p>Oder im Terminal:</p>
+<pre><code>cd ~/mac-cleanup-tool
+python3 cleanup.py gui</code></pre>
+            <div class="callout"><strong>macOS sagt „kann nicht geöffnet werden“?</strong>Rechtsklick auf <code>Aufraeumen.command</code> → <b>Öffnen</b> → nochmal <b>Öffnen</b>. Das ist nur beim ersten Mal nötig.</div>
+          </div>
+        </div>
+
+        <div class="install-step">
+          <div class="num">4</div>
+          <div>
+            <h3>Zugriff erlauben</h3>
+            <p>Beim ersten Scan fragt macOS, ob das Terminal auf <i>Downloads</i>, <i>Dokumente</i> und <i>Schreibtisch</i> zugreifen darf – mit <b>Erlauben</b> bestätigen, sonst findet der Scan dort nichts.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="anleitung">
+    <div class="wrap">
+      <h2>So räumst du auf</h2>
+      <p class="sub">Drei Schritte. Der Scan liest nur – verändert wird erst etwas, wenn du auswählst und bestätigst.</p>
+      <div class="steps">
+        <div class="card step">
+          <h3>Scannen</h3>
+          <p>Oben die Kategorien anhaken – z.&nbsp;B. nur <i>LLM-Modelle</i> und <i>Duplikate</i> – und auf <b>Scannen</b> klicken.</p>
+        </div>
+        <div class="card step">
+          <h3>Prüfen &amp; auswählen</h3>
+          <p>Klick auf einen Fund zeigt unten, <i>was</i> er ist und <i>warum</i> er vorgeschlagen wird. Klick auf ☐ wählt ihn aus, Klick auf die Kategorie wählt alle darin. Doppelklick zeigt die Datei im Finder.</p>
+        </div>
+        <div class="card step">
+          <h3>Entfernen</h3>
+          <p><b>Ausgewählte entfernen…</b> → bestätigen. Dateien landen im Papierkorb. <b>Leere danach den Papierkorb</b> – erst dann ist der Platz wirklich frei.</p>
+        </div>
+      </div>
+      <div class="callout warn" style="margin-top:20px"><strong>Orange markierte Funde werden endgültig gelöscht.</strong>Ollama-Modelle und Docker-Objekte entfernt das Tool über <code>ollama rm</code> bzw. <code>docker</code> – sie landen nicht im Papierkorb. Das Bestätigungsfenster weist extra darauf hin. Ollama-Modelle lassen sich mit <code>ollama pull</code> jederzeit neu laden.</div>
+    </div>
+  </section>
+
+  <section id="sicherheit">
+    <div class="wrap">
+      <h2>Sicherheit zuerst</h2>
+      <p class="sub">Aufräum-Tools, die zu viel löschen, sind schlimmer als volle Festplatten. Deshalb gelten feste Regeln – unabhängig davon, was ein Scan findet.</p>
+      <ul class="checks">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Scan verändert nichts.</b> Entfernt wird nur, was du abhakst und bestätigst.</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Papierkorb statt Löschen.</b> Normale Dateien landen im macOS-Papierkorb (inkl. „Zurücklegen“), unter Linux in <code>~/.cleanup-tool-trash</code>.</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Geschützte Orte.</b> Schlüsselbund, Mail, Nachrichten, iPhone-Backups, iCloud/CloudStorage, <code>~/.ssh</code> und Datenschutz-Daten werden nie angefasst.</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Nur im Benutzerordner.</b> Außerhalb von <code>$HOME</code> wird nie etwas verändert; nichts läuft mit Admin-Rechten.</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Was gerade benutzt wird, bleibt.</b> Alles, was in den letzten 24 Stunden geändert wurde, wird übersprungen.</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Die letzte Kopie bleibt.</b> Taucht dieselbe Datei als Modell <i>und</i> als Duplikat auf, wird nie jede Kopie entfernt. Symlinks und Hardlinks gelten nicht als Duplikate.</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Jeder Lauf wird protokolliert.</b> Ein JSON-Protokoll hält fest, was entfernt wurde und was nicht – und warum.</span></li>
+        <li class="warn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span><b>Ausnahme: Ollama &amp; Docker.</b> Diese werden über ihr eigenes Programm endgültig entfernt – deutlich markiert und extra bestätigt.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="terminal">
+    <div class="wrap">
+      <h2>Im Terminal benutzen</h2>
+      <p class="sub">Alles, was die Oberfläche kann, geht auch per Kommandozeile – praktisch für Linux-Server oder zum Automatisieren.</p>
+<pre><code><span class="c"># Nur Bericht – verändert nichts (schreibt zusätzlich report.json)</span>
+python3 cleanup.py scan
+
+<span class="c"># Bericht + interaktiv aufräumen: fragt pro Kategorie nach Nummern (1,3,5 · all · Enter = keine)</span>
+python3 cleanup.py clean
+
+<span class="c"># Nur bestimmte Kategorien</span>
+python3 cleanup.py scan --category llm duplicates
+
+<span class="c"># Mit eigener Konfiguration</span>
+python3 cleanup.py gui --config config.json</code></pre>
+
+      <h3 class="table-title">Kategorien für <code>--category</code></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Findet</th><th>Entfernt per</th></tr></thead>
+          <tbody>
+            <tr><td><code>llm</code></td><td>Ollama-Modelle, lose Modelldateien</td><td><code>ollama rm</code> (endgültig) bzw. Papierkorb</td></tr>
+            <tr><td><code>duplicates</code></td><td>Byte-identische Dateien</td><td>Papierkorb</td></tr>
+            <tr><td><code>junk</code></td><td>Caches, Logs, alte Installer</td><td>Papierkorb</td></tr>
+            <tr><td><code>projects</code></td><td>Alte Build- und Abhängigkeitsordner</td><td>Papierkorb</td></tr>
+            <tr><td><code>docker</code></td><td>Dangling Images, gestoppte Container, verwaiste Volumes</td><td><code>docker rmi/rm/volume rm</code> (endgültig)</td></tr>
+            <tr><td><code>apt</code></td><td>APT-Paket-Cache (Linux)</td><td>nur Bericht – Befehl <code>sudo apt-get clean</code> selbst ausführen</td></tr>
+            <tr><td><code>loot</code></td><td>Alte Pentest-Ausgaben (Linux)</td><td>Quarantäne</td></tr>
+            <tr><td><code>all</code></td><td>alle oben (Standard)</td><td>–</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="konfiguration">
+    <div class="wrap">
+      <h2>Konfiguration</h2>
+      <p class="sub">Die Standardwerte passen für die meisten. Anpassen geht über eine eigene <code>config.json</code>: Vorlage kopieren, Pfade ändern, mit <code>--config</code> oder im Fenster über <b>Config…</b> laden. Es reicht, nur die Werte einzutragen, die du ändern willst.</p>
+<pre><code>cp config.example.json config.json          <span class="c"># macOS</span>
+cp config.linux.example.json config.json    <span class="c"># Linux/Kali</span></code></pre>
+      <div class="callout"><strong>Gut zu wissen</strong>Listen (z.&nbsp;B. <code>duplicate_dirs</code>) ersetzen den Standard komplett – wer einen Ordner <i>hinzufügen</i> will, trägt die Standard-Ordner mit ein. <code>config.json</code> ist per <code>.gitignore</code> vom Repo ausgeschlossen.</div>
+
+      <h3 class="table-title">Alle Einstellungen</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Schlüssel</th><th>Standard (Mac)</th><th>Bedeutung</th></tr></thead>
+          <tbody>
+            <tr><td><code>llm_model_dirs</code></td><td class="default">~/Downloads, ~/Documents, ~/models</td><td>Wo nach losen Modelldateien gesucht wird</td></tr>
+            <tr><td><code>llm_model_extensions</code></td><td class="default">.gguf .bin .safetensors .ckpt .pt</td><td>Welche Dateiendungen als Modell gelten</td></tr>
+            <tr><td><code>llm_model_min_size_mb</code></td><td class="default">500</td><td>Kleinere Modelldateien werden ignoriert</td></tr>
+            <tr><td><code>llm_model_min_age_days</code></td><td class="default">30</td><td>Mindestalter für Modelle (auch Ollama)</td></tr>
+            <tr><td><code>system_junk_dirs</code></td><td class="default">~/Library/Caches, ~/Library/Logs, Xcode DerivedData, npm-/pip-Cache</td><td>Cache-/Log-Ordner; jeder Unterordner ist ein Fund</td></tr>
+            <tr><td><code>system_junk_min_age_days</code></td><td class="default">14</td><td>Mindestalter für Caches und Logs</td></tr>
+            <tr><td><code>installer_dirs</code> / <code>installer_extensions</code></td><td class="default">~/Downloads · .dmg .pkg</td><td>Wo und welche Installer gesucht werden</td></tr>
+            <tr><td><code>installer_min_age_days</code></td><td class="default">30</td><td>Mindestalter für Installer</td></tr>
+            <tr><td><code>project_roots</code></td><td class="default">~/Developer, ~/Projects, ~/WhiiteStudio</td><td>Wo nach Projekten gesucht wird</td></tr>
+            <tr><td><code>project_leftover_names</code></td><td class="default">node_modules, venv, .venv, __pycache__, dist, build, target, DerivedData, .gradle</td><td>Ordnernamen, die als neu erzeugbar gelten</td></tr>
+            <tr><td><code>project_leftover_min_age_days</code></td><td class="default">60</td><td>Mindestalter für Projekt-Reste</td></tr>
+            <tr><td><code>duplicate_dirs</code></td><td class="default">~/Downloads, ~/Desktop, ~/Documents</td><td>Wo nach Duplikaten gesucht wird</td></tr>
+            <tr><td><code>duplicate_min_size_mb</code></td><td class="default">5</td><td>Kleinere Dateien werden nicht verglichen</td></tr>
+            <tr><td><code>docker_min_age_days</code></td><td class="default">7</td><td>Jüngere Images/Container werden nicht vorgeschlagen</td></tr>
+            <tr><td><code>apt_cache_dir</code> / <code>apt_cache_min_age_days</code></td><td class="default">/var/cache/apt/archives · 14</td><td>APT-Cache (nur Linux, nur Bericht)</td></tr>
+            <tr><td><code>pentest_loot_dirs</code> / <code>pentest_loot_min_age_days</code></td><td class="default">~/loot, ~/.msf4/loot, ~/nmap-output, ~/engagements · 30</td><td>Pentest-Ausgaben (Linux)</td></tr>
+            <tr><td><code>protected_paths</code></td><td class="default">Keychains, Mail, Messages, MobileSync, CloudStorage, ~/.ssh, TCC</td><td>Wird nie angefasst, egal was ein Scan findet</td></tr>
+            <tr><td><code>min_untouched_hours</code></td><td class="default">24</td><td>Kürzlich geänderte Dateien gelten als „in Benutzung“</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="hilfe">
+    <div class="wrap">
+      <h2>Hilfe &amp; häufige Fragen</h2>
+      <p class="sub">Etwas klappt nicht? Die häufigsten Stolpersteine und ihre Lösung.</p>
+
+      <details>
+        <summary>Das Fenster ist schwarz oder leer</summary>
+        <div>
+          <p>Du startest mit Apples mitgeliefertem Python, das nur Tk 8.5 enthält. Prüfen im Terminal:</p>
+<pre><code>python3 -c "import tkinter; print(tkinter.TkVersion)"</code></pre>
+          <p>Zeigt es <code>8.5</code>: Python von <a href="https://www.python.org/downloads/macos/">python.org</a> installieren (oder <code>brew install python python-tk</code>) und danach <code>Aufraeumen.command</code> doppelklicken – es wählt automatisch das neue Python.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Funde können nicht entfernt werden</summary>
+        <div>
+          <p>Klick auf einen rot markierten Fund – unten unter „Details“ steht der Grund, oft direkt mit Lösung. Die häufigsten:</p>
+          <p><b>„macOS verweigert den Zugriff“</b> → Systemeinstellungen → Datenschutz &amp; Sicherheit → <b>Festplattenvollzugriff</b> → Terminal (bzw. Python) hinzufügen, Tool neu starten.</p>
+          <p><b>„keine Berechtigung, Finder zu steuern“</b> → Systemeinstellungen → Datenschutz &amp; Sicherheit → <b>Automation</b> → bei Terminal „Finder“ aktivieren.</p>
+          <p><b>„'ollama' konnte nicht gestartet werden“</b> → Ollama ist nicht installiert oder nicht gestartet. Das Modell kannst du auch direkt mit <code>ollama rm &lt;name&gt;</code> entfernen.</p>
+          <p><b>„Übersprungen – letzte verbliebene Kopie“</b> → Absicht: du hattest alle Kopien einer Datei ausgewählt, eine bleibt erhalten.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Ich habe aufgeräumt, aber es ist nicht mehr Platz frei</summary>
+        <div>
+          <p>Die Dateien liegen noch im Papierkorb. Erst wenn du ihn leerst (Rechtsklick auf den Papierkorb im Dock → <b>Papierkorb entleeren</b>), wird der Platz frei. Unter Linux: <code>~/.cleanup-tool-trash</code> selbst leeren.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Ich habe versehentlich etwas entfernt</summary>
+        <div>
+          <p>Papierkorb öffnen, Datei auswählen, Rechtsklick → <b>Zurücklegen</b>. Unter Linux die Datei aus <code>~/.cleanup-tool-trash</code> zurückverschieben – die Ordnerstruktur dort spiegelt die Originalpfade. Welche Dateien entfernt wurden, steht im Protokoll unter <code>~/.cleanup-tool-logs/</code>.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>„Die GUI braucht tkinter, das in diesem Python fehlt“</summary>
+        <div>
+          <p>Homebrew-Python: <code>brew install python-tk</code>. Kali/Debian/Ubuntu: <code>sudo apt install python3-tk</code>. Die Terminal-Befehle <code>scan</code> und <code>clean</code> funktionieren auch ohne tkinter.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Wie aktualisiere ich das Tool?</summary>
+        <div>
+          <p>Mit git installiert: <code>cd ~/mac-cleanup-tool &amp;&amp; git pull</code>. Per ZIP installiert: neue ZIP laden und den alten Ordner ersetzen (deine <code>config.json</code> vorher sichern).</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Läuft es auch unter Linux oder Kali (WSL)?</summary>
+        <div>
+          <p>Ja. Standardpfade und Entfernungsweg passen sich automatisch an: statt des Papierkorbs wird nach <code>~/.cleanup-tool-trash</code> verschoben, zusätzlich gibt es die Kategorien <code>apt</code> und <code>loot</code>. Vorlage: <code>config.linux.example.json</code>.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section id="entwickeln">
+    <div class="wrap">
+      <h2>Mitmachen &amp; Entwickeln</h2>
+      <p class="sub">Reines Python mit der Standardbibliothek – keine Abhängigkeiten, kein Build-Schritt.</p>
+<pre><code><span class="c"># Tests (laufen in einem temporären Fake-Home, fassen nichts Echtes an)</span>
+python3 -m unittest discover -s tests</code></pre>
+      <div class="table-wrap" style="margin-top:20px">
+        <table>
+          <thead><tr><th>Datei</th><th>Inhalt</th></tr></thead>
+          <tbody>
+            <tr><td><code>cleanup.py</code></td><td>Einstiegspunkt: <code>scan</code> / <code>clean</code> / <code>gui</code></td></tr>
+            <tr><td><code>Aufraeumen.command</code></td><td>Doppelklick-Starter für macOS, wählt ein Python mit Tk ≥ 8.6</td></tr>
+            <tr><td><code>cleaner/scanners.py</code></td><td>Die Scanner – verändern nie etwas</td></tr>
+            <tr><td><code>cleaner/trash.py</code></td><td>Entfernen: Papierkorb, Quarantäne, <code>ollama rm</code>, <code>docker</code>; Schutz der letzten Kopie</td></tr>
+            <tr><td><code>cleaner/gui.py</code></td><td>Die Oberfläche (tkinter)</td></tr>
+            <tr><td><code>cleaner/config.py</code></td><td>Standardpfade, Schwellwerte, geschützte Orte</td></tr>
+            <tr><td><code>tests/</code></td><td>Regressionstests (unittest)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">Fehler gefunden oder eine Idee? <a href="https://github.com/whiitesite-collab/mac-cleanup-tool/issues">Issue auf GitHub öffnen</a>.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>mac-cleanup-tool · <a href="https://github.com/whiitesite-collab/mac-cleanup-tool/blob/main/LICENSE">MIT-Lizenz</a> · © 2026 Whiite</span>
+    <a href="https://github.com/whiitesite-collab/mac-cleanup-tool">Quellcode auf GitHub ↗</a>
+  </div>
+</footer>
+
+<script>
+  // Theme toggle: remembers the choice per browser; falls back to the system setting.
+  (function () {
+    var root = document.documentElement;
+    try {
+      var saved = localStorage.getItem("theme");
+      if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+    } catch (e) {}
+    document.getElementById("theme").addEventListener("click", function () {
+      var current = root.getAttribute("data-theme") ||
+        (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      var next = current === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("theme", next); } catch (e) {}
+    });
+  })();
+
+  // Copy buttons on every code block (comments are left out of what gets copied).
+  document.querySelectorAll("pre").forEach(function (pre) {
+    var button = document.createElement("button");
+    button.className = "copy";
+    button.type = "button";
+    button.textContent = "Kopieren";
+    button.addEventListener("click", function () {
+      var clone = pre.querySelector("code").cloneNode(true);
+      clone.querySelectorAll(".c").forEach(function (c) { c.remove(); });
+      var text = clone.textContent.split("\n").map(function (l) { return l.replace(/\s+$/, ""); })
+        .filter(function (l) { return l.length; }).join("\n");
+      navigator.clipboard.writeText(text).then(function () {
+        button.textContent = "Kopiert ✓";
+        setTimeout(function () { button.textContent = "Kopieren"; }, 1600);
+      }, function () { button.textContent = "Markieren & ⌘C"; });
+    });
+    pre.appendChild(button);
+  });
+</script>
+</body>
+</html>
