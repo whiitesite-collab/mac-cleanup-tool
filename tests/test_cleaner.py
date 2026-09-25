@@ -224,5 +224,24 @@ class ManifestScanTest(FakeHomeTest):
         self.assertEqual((f.action, f.action_arg, f.size_bytes), ("ollama_rm", "hf.co/user/repo:latest", 10))
 
 
+class MacTkCheckTest(unittest.TestCase):
+    def _problem(self, platform: str, tk_version: float):
+        import types
+        import cleanup
+        fake_tk = types.SimpleNamespace(TkVersion=tk_version)
+        with mock.patch.object(cleanup.sys, "platform", platform), \
+                mock.patch.dict(sys.modules, {"tkinter": fake_tk}):
+            return cleanup._mac_tk_problem()
+
+    def test_apple_bundled_tk85_is_rejected_with_instructions(self):
+        message = self._problem("darwin", 8.5)
+        self.assertIn("Tk 8.5", message)
+        self.assertIn("python.org", message)
+
+    def test_tk86_on_mac_and_any_linux_tk_are_fine(self):
+        self.assertIsNone(self._problem("darwin", 8.6))
+        self.assertIsNone(self._problem("linux", 8.5))
+
+
 if __name__ == "__main__":
     unittest.main()

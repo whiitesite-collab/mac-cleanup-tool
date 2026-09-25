@@ -85,8 +85,13 @@ Die GUI warnt extra, wenn etwas **endgültig** gelöscht würde (`ollama rm`,
 Docker – die landen nicht im Papierkorb) oder wenn bei einem Duplikat auch das
 Original ausgewählt ist. Protokolle landen in `~/.cleanup-tool-logs/`.
 
-Braucht `tkinter`: beim System-Python von macOS dabei; mit Homebrew-Python
-`brew install python-tk`, auf Kali/Debian `sudo apt install python3-tk`.
+Braucht `tkinter` mit **Tk 8.6 oder neuer**. Achtung: Apples mitgeliefertes
+`/usr/bin/python3` hat nur Tk 8.5 – dessen Fenster bleiben auf aktuellem
+macOS **schwarz/leer**. Dann Python von
+[python.org](https://www.python.org/downloads/macos/) installieren oder
+`brew install python python-tk`. `Aufraeumen.command` sucht sich danach das
+passende Python selbst; `cleanup.py gui` meldet ein zu altes Tk statt ein
+leeres Fenster zu öffnen. Kali/Debian: `sudo apt install python3-tk`.
 
 ## Nutzung (Terminal)
 
