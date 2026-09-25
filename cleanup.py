@@ -98,7 +98,29 @@ def cmd_gui(args) -> None:
             "macOS mit Homebrew-Python: `brew install python-tk`, "
             "Debian/Kali: `sudo apt install python3-tk`."
         )
+    tk_problem = _mac_tk_problem()
+    if tk_problem:
+        sys.exit(tk_problem)
     gui_main(args.config, args.category)
+
+
+def _mac_tk_problem() -> str | None:
+    """Apple's bundled /usr/bin/python3 ships the deprecated Tk 8.5, whose
+    windows render as an empty black box on current macOS. Say so up front
+    instead of opening a window that looks broken."""
+    import tkinter
+
+    if sys.platform != "darwin" or tkinter.TkVersion >= 8.6:
+        return None
+    return (
+        f"Dieses Python ({sys.executable}) bringt das veraltete Tk {tkinter.TkVersion} mit – "
+        "dessen Fenster bleiben auf aktuellem macOS schwarz/leer.\n\n"
+        "Lösung (eins von beiden):\n"
+        "  • Python von https://www.python.org/downloads/macos/ installieren (enthält Tk 8.6),\n"
+        "  • oder mit Homebrew:  brew install python python-tk\n\n"
+        "Danach Aufraeumen.command erneut doppelklicken – es sucht sich das passende Python selbst.\n"
+        "Im Terminal alternativ:  python3.13 cleanup.py gui   (bzw. deine installierte Version)"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

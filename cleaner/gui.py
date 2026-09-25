@@ -461,7 +461,12 @@ class CleanupApp:
             self._set_busy(False)
             summary = f"Fertig. Protokoll: {event[1]}"
             if failed:
-                summary = (f"{failed} Fund(e) wurden nicht entfernt (rot markiert, Grund beim Anklicken).\n\n"
+                # Show the reasons right here - a permission problem hits every
+                # item the same way, and should be readable without clicking.
+                reasons = list(dict.fromkeys(self.errors[i] for i in self.selected if i in self.errors))
+                shown = "\n\n".join(f"• {r}" for r in reasons[:3])
+                more = f"\n\n… und {len(reasons) - 3} weitere Gründe" if len(reasons) > 3 else ""
+                summary = (f"{failed} Fund(e) wurden nicht entfernt (rot markiert):\n\n{shown}{more}\n\n"
                            + summary)
             if sys.platform == "darwin":
                 summary += "\n\nTipp: Platz wird erst frei, wenn du den Papierkorb leerst."

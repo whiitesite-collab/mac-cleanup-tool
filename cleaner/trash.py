@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -78,9 +79,29 @@ def move_to_trash(path: Path, config: dict) -> None:
         _move_to_quarantine(path)
 
 
-# The path is passed as an argv item, never spliced into the script text: a
-# file name containing `"` would otherwise be able to inject AppleScript
-# (e.g. `do shell script`) - and scanned file names are untrusted input.
+# In both scripts below the path is passed as an argv item, never spliced into
+# the script text: a file name containing `"` would otherwise be able to
+# inject code (e.g. AppleScript `do shell script`) - and scanned file names
+# are untrusted input.
+
+# Preferred: NSFileManager.trashItemAtURL through JavaScript for Automation's
+# ObjC bridge. It runs inside osascript itself and sends no Apple Events to
+# Finder, so it needs no "Terminal möchte Finder steuern" permission - the
+# Automation prompt is easy to miss or deny, which made every removal fail.
+# Items still land in the normal Trash (including "Zurücklegen").
+_NSFILEMANAGER_TRASH_JS = """
+ObjC.import('Foundation');
+function run(argv) {
+  const error = $();
+  const ok = $.NSFileManager.defaultManager.trashItemAtURLResultingItemURLError(
+    $.NSURL.fileURLWithPath(argv[0]), $(), error);
+  if (!ok) {
+    throw new Error(ObjC.unwrap(error.localizedDescription));
+  }
+}
+"""
+
+# Fallback: ask Finder (needs the Automation permission).
 _FINDER_TRASH_SCRIPT = (
     "on run argv",
     "set target to (POSIX file (item 1 of argv)) as alias",
@@ -89,14 +110,40 @@ _FINDER_TRASH_SCRIPT = (
 )
 
 
-def _move_to_finder_trash(path: Path) -> None:
-    cmd = ["osascript"]
+def _mac_trash_attempts(path: Path) -> list[tuple[str, list[str]]]:
+    finder = ["osascript"]
     for line in _FINDER_TRASH_SCRIPT:
-        cmd += ["-e", line]
-    cmd.append(str(path))
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise TrashError(f"Finder konnte {path} nicht in den Papierkorb legen: {result.stderr.strip()}")
+        finder += ["-e", line]
+    return [
+        ("macOS", ["osascript", "-l", "JavaScript", "-e", _NSFILEMANAGER_TRASH_JS, str(path)]),
+        ("Finder", finder + [str(path)]),
+    ]
+
+
+def _move_to_finder_trash(path: Path) -> None:
+    errors = []
+    for label, cmd in _mac_trash_attempts(path):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            errors.append(f"{label}: {e}")
+            continue
+        if result.returncode == 0:
+            return
+        errors.append(f"{label}: {result.stderr.strip() or f'Exit-Code {result.returncode}'}")
+    raise TrashError(f"Konnte {path} nicht in den Papierkorb legen{_mac_permission_hint(errors)} "
+                     f"[{' | '.join(errors)}]")
+
+
+def _mac_permission_hint(errors: list[str]) -> str:
+    text = " ".join(errors).lower()
+    if "operation not permitted" in text or "permission" in text or "(-54)" in text:
+        return (" – macOS verweigert den Zugriff. Lösung: Systemeinstellungen → Datenschutz & Sicherheit → "
+                "Festplattenvollzugriff → Terminal (bzw. Python) hinzufügen und das Tool neu starten.")
+    if "(-1743)" in text or "not authorized" in text or "nicht berechtigt" in text:
+        return (" – keine Berechtigung, Finder zu steuern. Lösung: Systemeinstellungen → Datenschutz & "
+                "Sicherheit → Automation → bei Terminal (bzw. Python) „Finder“ aktivieren.")
+    return ""
 
 
 def _move_to_quarantine(path: Path) -> None:
@@ -114,11 +161,25 @@ def _move_to_quarantine(path: Path) -> None:
         raise TrashError(f"Konnte {path} nicht in Quarantäne ({QUARANTINE_ROOT}) verschieben: {e}")
 
 
+# Started by double-clicking Aufraeumen.command, PATH can lack the places
+# where these CLIs live, so look there too before giving up.
+_EXTRA_TOOL_DIRS = (
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/Applications/Ollama.app/Contents/Resources",
+    "/Applications/Docker.app/Contents/Resources/bin",
+)
+
+
+def _find_tool(name: str) -> str:
+    return shutil.which(name) or shutil.which(name, path=os.pathsep.join(_EXTRA_TOOL_DIRS)) or name
+
+
 def _run_tool(*cmd: str) -> None:
     # A missing binary must fail this one finding, not crash the whole run
     # (and lose the cleanup log) halfway through.
     try:
-        result = subprocess.run(list(cmd), capture_output=True, text=True)
+        result = subprocess.run([_find_tool(cmd[0]), *cmd[1:]], capture_output=True, text=True)
     except OSError as e:
         raise TrashError(f"'{cmd[0]}' konnte nicht gestartet werden (installiert?): {e}")
     if result.returncode != 0:

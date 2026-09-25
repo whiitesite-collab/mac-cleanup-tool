@@ -188,14 +188,51 @@ class LastCopyGuardTest(unittest.TestCase):
 
 
 class RemovalTest(FakeHomeTest):
-    def test_finder_path_is_passed_as_argv_not_script_text(self):
-        evil = Path('/Users/x/Downloads/x" & (do shell script "touch /tmp/pwned") & ".gguf')
-        with mock.patch.object(trash.subprocess, "run") as run:
-            run.return_value.returncode = 0
-            trash._move_to_finder_trash(evil)
-        cmd = run.call_args[0][0]
-        self.assertEqual(cmd[-1], str(evil))
-        self.assertTrue(all(str(evil) not in part for part in cmd[:-1]))
+    EVIL = Path('/Users/x/Downloads/x" & (do shell script "touch /tmp/pwned") & ".gguf')
+
+    def _mac_trash(self, *results):
+        """Run the macOS trash path with osascript mocked to return `results`."""
+        outcomes = [mock.Mock(returncode=rc, stderr=err) for rc, err in results]
+        with mock.patch.object(trash.subprocess, "run", side_effect=outcomes) as run:
+            try:
+                trash._move_to_finder_trash(self.EVIL)
+                error = None
+            except trash.TrashError as e:
+                error = str(e)
+        return [c.args[0] for c in run.call_args_list], error
+
+    def test_mac_trash_passes_path_as_argv_not_script_text(self):
+        calls, _ = self._mac_trash((1, "boom"), (1, "boom"))
+        self.assertEqual(len(calls), 2)
+        for cmd in calls:
+            self.assertEqual(cmd[-1], str(self.EVIL))
+            self.assertTrue(all(str(self.EVIL) not in part for part in cmd[:-1]))
+
+    def test_mac_trash_uses_nsfilemanager_first_without_finder(self):
+        calls, error = self._mac_trash((0, ""))
+        self.assertIsNone(error)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:3], ["osascript", "-l", "JavaScript"])
+
+    def test_mac_trash_falls_back_to_finder(self):
+        calls, error = self._mac_trash((1, "some NSFileManager error"), (0, ""))
+        self.assertIsNone(error)
+        self.assertIn('tell application "Finder" to delete target', calls[1])
+
+    def test_mac_trash_errors_explain_the_missing_permission(self):
+        _, error = self._mac_trash(
+            (1, "Error: The operation couldn’t be completed. Operation not permitted"),
+            (1, "execution error: Not authorized to send Apple events to Finder. (-1743)"),
+        )
+        self.assertIn("Festplattenvollzugriff", error)
+        _, error = self._mac_trash((1, "weird"), (1, "Not authorized to send Apple events to Finder. (-1743)"))
+        self.assertIn("Automation", error)
+        _, error = self._mac_trash((1, "x"), (1, "file -54.gguf not found"))
+        self.assertNotIn("Lösung", error)
+
+    def test_cli_tools_are_found_outside_path(self):
+        with mock.patch.object(trash.shutil, "which", side_effect=[None, "/opt/homebrew/bin/ollama"]):
+            self.assertEqual(trash._find_tool("ollama"), "/opt/homebrew/bin/ollama")
 
     def test_missing_cli_tool_is_a_trash_error_not_a_crash(self):
         f = Finding(Path("/x"), "llm_model", 1, datetime.now(), "", action="ollama_rm", action_arg="m:1")
@@ -222,6 +259,25 @@ class ManifestScanTest(FakeHomeTest):
         _write(manifest, json.dumps({"config": {"size": 1}, "layers": [{"size": 9}]}).encode())
         (f,) = scanners.scan_llm_models(self.config)
         self.assertEqual((f.action, f.action_arg, f.size_bytes), ("ollama_rm", "hf.co/user/repo:latest", 10))
+
+
+class MacTkCheckTest(unittest.TestCase):
+    def _problem(self, platform: str, tk_version: float):
+        import types
+        import cleanup
+        fake_tk = types.SimpleNamespace(TkVersion=tk_version)
+        with mock.patch.object(cleanup.sys, "platform", platform), \
+                mock.patch.dict(sys.modules, {"tkinter": fake_tk}):
+            return cleanup._mac_tk_problem()
+
+    def test_apple_bundled_tk85_is_rejected_with_instructions(self):
+        message = self._problem("darwin", 8.5)
+        self.assertIn("Tk 8.5", message)
+        self.assertIn("python.org", message)
+
+    def test_tk86_on_mac_and_any_linux_tk_are_fine(self):
+        self.assertIsNone(self._problem("darwin", 8.6))
+        self.assertIsNone(self._problem("linux", 8.5))
 
 
 if __name__ == "__main__":
