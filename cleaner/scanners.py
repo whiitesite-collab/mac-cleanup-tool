@@ -577,3 +577,22 @@ ALL_SCANNERS = {
     "loot": scan_pentest_loot,
     "docker": scan_docker,
 }
+
+
+def run_scanners(categories: list[str], config: dict, on_progress=None) -> list[Finding]:
+    """Run the named scanners in order. The same path can be reached from two
+    configured dirs (e.g. ~/.cache and ~/.cache/pip), so findings are
+    de-duplicated per category - otherwise totals double-count and the second
+    removal fails because the path is already gone."""
+    findings: list[Finding] = []
+    seen: set[tuple[str, str]] = set()
+    for name in categories:
+        if on_progress is not None:
+            on_progress(name)
+        for f in ALL_SCANNERS[name](config):
+            key = (f.category, str(f.path))
+            if key in seen:
+                continue
+            seen.add(key)
+            findings.append(f)
+    return findings

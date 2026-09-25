@@ -26,6 +26,9 @@ from .findings import Finding
 
 QUARANTINE_ROOT = HOME / ".cleanup-tool-trash"
 
+# Actions that go through an external CLI and cannot be undone from a trash.
+IRREVERSIBLE_ACTIONS = {"ollama_rm", "docker_rmi", "docker_rm_container", "docker_volume_rm"}
+
 
 class TrashError(RuntimeError):
     pass
@@ -43,9 +46,23 @@ def move_to_trash(path: Path, config: dict) -> None:
         _move_to_quarantine(path)
 
 
+# The path is passed as an argv item, never spliced into the script text: a
+# file name containing `"` would otherwise be able to inject AppleScript
+# (e.g. `do shell script`) - and scanned file names are untrusted input.
+_FINDER_TRASH_SCRIPT = (
+    "on run argv",
+    "set target to (POSIX file (item 1 of argv)) as alias",
+    'tell application "Finder" to delete target',
+    "end run",
+)
+
+
 def _move_to_finder_trash(path: Path) -> None:
-    script = f'tell application "Finder" to delete (POSIX file "{path}" as alias)'
-    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    cmd = ["osascript"]
+    for line in _FINDER_TRASH_SCRIPT:
+        cmd += ["-e", line]
+    cmd.append(str(path))
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise TrashError(f"Finder konnte {path} nicht in den Papierkorb legen: {result.stderr.strip()}")
 

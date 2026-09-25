@@ -24,7 +24,9 @@ für macOS bzw. `config.linux.example.json` für Kali/Linux).
 
 ## Sicherheitsprinzip
 
-**Nichts wird endgültig gelöscht.**
+**Gewöhnliche Dateien werden nie endgültig gelöscht** – Ausnahme sind
+Ollama-Modelle und Docker-Objekte (siehe unten), die über ihr eigenes CLI
+entfernt werden und nicht im Papierkorb landen.
 
 - **macOS:** gewöhnliche Dateien/Ordner werden über Finder in den
   **Papierkorb** verschoben (`osascript` → `Finder: delete`) – genau wie per
@@ -37,9 +39,11 @@ für macOS bzw. `config.linux.example.json` für Kali/Linux).
   geleert – das entscheidest du.
 - Ollama-Modelle werden über `ollama rm <model>` entfernt, nicht durch
   direktes Löschen der Blob-Dateien – die sind content-addressed und können
-  von mehreren Modellen gemeinsam genutzt werden.
+  von mehreren Modellen gemeinsam genutzt werden. **Das ist endgültig**
+  (neu herunterladen per `ollama pull` geht natürlich).
 - Docker-Funde werden über `docker rmi`/`docker rm`/`docker volume rm`
-  entfernt, nicht durch Löschen von Storage-Driver-Dateien.
+  entfernt, nicht durch Löschen von Storage-Driver-Dateien. **Das ist
+  endgültig** – besonders bei Volumes (können Datenbank-Daten enthalten).
 - Der **APT-Paket-Cache wird nie automatisch angefasst** – der Ordner gehört
   meist root, daher zeigt dieses Tool hier nur einen Bericht plus den
   manuellen Befehl (`sudo apt-get clean`). Kein Teil dieses Tools läuft mit
@@ -55,7 +59,32 @@ für macOS bzw. `config.linux.example.json` für Kali/Linux).
   andere nur in den Papierkorb/die Quarantäne, nie direkt weg – falls ein
   Report doch noch auf die Rohdaten zurückgreifen muss.
 
-## Nutzung
+## GUI (Fenster statt Terminal)
+
+```bash
+python3 cleanup.py gui
+```
+
+Oder auf dem Mac einfach **`Aufraeumen.command` im Finder doppelklicken**.
+
+1. Oben die Kategorien anhaken (z.B. nur *LLM-Modelle* und *Duplikate*) → **Scannen**.
+   Der Scan verändert nichts.
+2. Funde per Klick auf das Kästchen ☐ auswählen – ein Klick auf die
+   Kategorie-Zeile wählt die ganze Kategorie. Ein einfacher Klick zeigt unten,
+   *was* der Fund ist und *warum* er vorgeschlagen wird; ein Doppelklick
+   zeigt die Datei im Finder.
+3. **Ausgewählte entfernen…** → Bestätigen. Dateien wandern in den Papierkorb
+   (macOS) bzw. nach `~/.cleanup-tool-trash` (Linux). Platz wird erst frei,
+   wenn du den Papierkorb leerst.
+
+Die GUI warnt extra, wenn etwas **endgültig** gelöscht würde (`ollama rm`,
+Docker – die landen nicht im Papierkorb) oder wenn bei einem Duplikat auch das
+Original ausgewählt ist. Protokolle landen in `~/.cleanup-tool-logs/`.
+
+Braucht `tkinter`: beim System-Python von macOS dabei; mit Homebrew-Python
+`brew install python-tk`, auf Kali/Debian `sudo apt install python3-tk`.
+
+## Nutzung (Terminal)
 
 ```bash
 # Nur Bericht – verändert nichts
@@ -91,7 +120,8 @@ Enter zum Überspringen). Jeder Lauf schreibt ein Protokoll
 ## Struktur
 
 ```
-cleanup.py                    CLI-Einstiegspunkt (scan / clean)
+cleanup.py                    CLI-Einstiegspunkt (scan / clean / gui)
+Aufraeumen.command            Doppelklick-Starter für die GUI (macOS)
 cleaner/
   config.py                   Default-Pfade pro Plattform, Schwellwerte, Schutzliste
   findings.py                 Finding-Datenklasse
@@ -99,6 +129,7 @@ cleaner/
   trash.py                    Entfernungs-Logik: Papierkorb (macOS) / Quarantäne (Linux) /
                                ollama rm / docker rm – nie permanent löschen
   report.py                   Terminal- und JSON-Ausgabe
+  gui.py                      Desktop-Oberfläche (tkinter)
   util.py                     Kleine Helfer (Thread-Pool, os.scandir-Walker)
 config.example.json           Vorlage für macOS
 config.linux.example.json     Vorlage für Linux/Kali
